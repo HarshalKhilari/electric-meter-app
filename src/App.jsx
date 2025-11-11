@@ -92,23 +92,40 @@ function App() {
     }
   };
 
-  // Start camera using a specific deviceId
-  const startCamera = async (deviceId) => {
+  // Start camera using a specific facingMode
+  const startCamera = async (facingMode) => {
     try {
       stopStream();
-      const constraints = deviceId
-        ? { video: { deviceId: { exact: deviceId } }, audio: false }
-        : { video: { facingMode: "environment" }, audio: false };
+
+      // Use facingMode for reliable switching on mobile
+      const constraints = {
+        video: {
+          facingMode: facingMode, // "user" or "environment"
+          // Optional: set an ideal resolution to try and select the default wide lens
+          // ideal: { width: 1280, height: 720 },
+        },
+        audio: false,
+      };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
+
+      // Update currentDeviceId based on the actual track settings (optional but good practice)
       const track = stream.getVideoTracks()[0];
       const settings = track.getSettings ? track.getSettings() : {};
       if (settings.deviceId) {
         setCurrentDeviceId(settings.deviceId);
       }
+
+      // Update back/front IDs to match the current camera for flip logic consistency
+      if (facingMode === "environment") {
+        setBackDeviceId(settings.deviceId);
+      } else if (facingMode === "user") {
+        setFrontDeviceId(settings.deviceId);
+      }
+
       setCameraError(null);
       setCameraStarted(true);
     } catch (err) {
@@ -119,17 +136,22 @@ function App() {
 
   // Flip camera logic
   const flipCamera = async () => {
-    let target = frontDeviceId;
-    if (currentDeviceId === backDeviceId && frontDeviceId) {
-      target = frontDeviceId;
-    } else if (backDeviceId) {
-      target = backDeviceId;
-    }
-    if (target) {
-      await startCamera(target);
-    }
-  };
+    // Determine the current facing mode based on which ID is currently active
+    const isCurrentlyFront = currentDeviceId && frontDeviceId && currentDeviceId === frontDeviceId;
+    const isCurrentlyBack = currentDeviceId && backDeviceId && currentDeviceId === backDeviceId;
 
+    let targetFacingMode = "environment"; // Default to back
+
+    if (isCurrentlyBack) {
+      targetFacingMode = "user"; // Switch to front
+    } else if (isCurrentlyFront) {
+      targetFacingMode = "environment"; // Switch to back
+    }
+    // If neither is defined (first start), it defaults to "environment" (back) as set above.
+
+    await startCamera(targetFacingMode);
+  };
+  
   // On mount: setup devices
   useEffect(() => {
     setupDevices();
@@ -213,7 +235,7 @@ function App() {
           <button
             onClick={() => {
               if (!cameraStarted) {
-                startCamera(backDeviceId || frontDeviceId);
+                startCamera("environment");
               } else {
                 captureImage();
               }
@@ -242,7 +264,7 @@ function App() {
         <p className="text-red-500 mt-3 text-center">
           {cameraError}
           <button
-            onClick={() => startCamera(backDeviceId || frontDeviceId)}
+            onClick={() => startCamera("environment")}
             className="underline text-blue-600 ml-1"
           >
             Retry
