@@ -14,12 +14,24 @@ function App() {
   const [facingMode, setFacingMode] = useState("environment"); // ✅ default to back camera
 
   // ✅ Start camera with facingMode
+  // This version stops any existing video streams before starting a new one
+  // to prevent "Unable to access camera" errors when flipping between cameras.
   const startCamera = async () => {
     try {
+      // 🛑 Stop any active camera streams first
+      if (videoRef.current && videoRef.current.srcObject) {
+        const tracks = videoRef.current.srcObject.getTracks();
+        tracks.forEach((track) => track.stop());
+        videoRef.current.srcObject = null;
+      }
+
+      // 🎥 Start new camera with current facing mode (default: back camera)
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode },
         audio: false,
       });
+
+      // 📺 Attach the new stream to the video element
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
@@ -28,6 +40,7 @@ function App() {
       alert("Unable to access camera. Please check permissions.");
     }
   };
+
 
   // ✅ Restart camera whenever facingMode changes
   useEffect(() => {
