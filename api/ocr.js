@@ -8,7 +8,7 @@ export default async function handler(req, res) {
     if (!imageBase64) return res.status(400).json({ error: "No image provided" });
 
     const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
-    const API_KEY = process.env.GEMINI_API_KEY;
+    const API_KEY = process.env.VITE_GEMINI_API_KEY;
 
     const prompt = `
 You are an OCR system specialized in reading electricity meter images.
