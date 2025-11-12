@@ -93,13 +93,6 @@ export default function App() {
           )}
         </div>
       )}
-
-      {raw && (
-        <div className="mt-4 w-full max-w-md bg-gray-900 p-3 rounded-lg">
-          <h2 className="text-yellow-400 font-bold mb-2">Raw JSON</h2>
-          <pre className="text-sm whitespace-pre-wrap break-words">{raw}</pre>
-        </div>
-      )}
     </div>
   );
 }
