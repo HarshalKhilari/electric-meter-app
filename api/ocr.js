@@ -1,90 +1,59 @@
-// api/ocr.js
-
 export default async function handler(req, res) {
+  console.log("🟢 OCR endpoint called");
+
   try {
-    const { imageBase64 } = req.body;
+    if (req.method !== "POST") {
+      console.log("❌ Wrong method:", req.method);
+      return res.status(405).json({ error: "Method not allowed" });
+    }
 
-    const prompt = `
-You are an expert OCR system specialized in reading electricity meter images.
+    const { imageBase64 } = req.body || {};
+    if (!imageBase64) {
+      console.log("❌ No imageBase64 received");
+      return res.status(400).json({ error: "No image data" });
+    }
 
-Given an image of an electricity meter, identify and extract the following:
-1. meter_reading — numeric value on the 7-segment display (digits and decimal point only).
-2. register_type — label/unit near the numeric display (e.g., "kWh", "kVAh", "kW", etc.).
-3. serial_number — printed/engraved alphanumeric ID of the meter (ignore barcodes).
+    console.log("✅ Received image, length:", imageBase64.length);
 
-Important visual rule for the decimal point:
-- The decimal point is valid only if it is horizontally aligned with the bottom segment line of the digits.
-- Ignore any dot that is misaligned or above.
-
-Guidelines:
-- The reading must come from the 7-segment display only.
-- Ignore timestamps, reflections, glare.
-- If unreadable, set field to null.
-- If partially readable, include readable part and note what’s missing.
-- If serial number includes trailing date-like pairs (e.g., 06/05), ignore those.
-- Return confidence as "high", "medium", or "low".
-- Respond strictly in JSON format:
-{
-  "meter_reading": "<digits or null>",
-  "register_type": "<string or null>",
-  "serial_number": "<string or null>",
-  "confidence": "<low | medium | high>",
-  "notes": "<short note>"
-}
-`;
-
-    // Use correct model name
     const modelName = "gemini-2.5-flash";
+    const apiKey = process.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+      console.log("❌ No GEMINI_API_KEY in environment");
+      return res.status(500).json({ error: "Missing Gemini API key" });
+    }
 
-    // Use correct endpoint format with API key query param
-    const apiKey = process.env.GEMINI_API_KEY;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
     const body = {
       contents: [
         {
           parts: [
-            { text: prompt },
+            { text: "Test call: please reply 'pong'" },
             {
               inline_data: {
                 mimeType: "image/jpeg",
-                data: imageBase64.split(",")[1]
-              }
-            }
-          ]
-        }
-      ]
+                data: imageBase64.split(",")[1],
+              },
+            },
+          ],
+        },
+      ],
     };
 
+    console.log("📡 Sending request to Gemini...");
     const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-        // No separate Authorization header needed if you pass ?key=
-      },
-      body: JSON.stringify(body)
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
 
     const json = await response.json();
-    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    console.log("✅ Gemini response:", json);
 
-    const cleaned = text.replace(/```(?:json)?|```/g, "").trim();
-    let result;
-    try {
-      result = JSON.parse(cleaned);
-    } catch (e) {
-      result = {
-        meter_reading: null,
-        register_type: null,
-        serial_number: null,
-        confidence: "low",
-        notes: `Could not parse response: ${text}`
-      };
-    }
-
-    res.status(200).json(result);
+    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || "No text";
+    res.status(200).json({ ok: true, text });
   } catch (err) {
-    console.error("OCR Handler error:", err);
-    res.status(500).json({ error: "Gemini OCR failed", details: err.message });
+    console.error("💥 OCR Handler error:", err);
+    res.status(500).json({ error: err.message });
   }
 }
