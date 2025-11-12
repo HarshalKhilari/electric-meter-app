@@ -109,6 +109,11 @@ export default function App() {
               <p><b>Serial Number:</b> {result.serial_number || "—"}</p>
               <p><b>Confidence:</b> {result.confidence || "—"}</p>
               <p><b>Notes:</b> {result.notes || "—"}</p>
+
+              <hr className="my-2 border-gray-600" />
+              <p className="text-xs text-gray-400 break-all">
+                <b>Raw JSON:</b> {raw || "—"}
+              </p>
             </>
           )}
         </div>
