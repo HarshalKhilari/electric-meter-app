@@ -7,25 +7,26 @@ export default async function handler(req, res) {
     const { imageBase64 } = req.body;
     if (!imageBase64) return res.status(400).json({ error: "No image provided" });
 
-    const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+    const GEMINI_URL =
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
     const API_KEY = process.env.VITE_GEMINI_API_KEY;
 
     const prompt = `
-You are an OCR system specialized in reading electricity meter images.
+You are a vision-based OCR system specialized in reading electricity meter images.
 
-Extract the following:
-1. meter_reading — numeric digits on 7-segment display.
-2. register_type — text near numeric display (like "kWh", "kVAh", etc.).
-3. serial_number — printed or engraved alphanumeric code.
-
-Return ONLY pure JSON like this:
+Extract and return a JSON object with exactly the following keys:
 {
-  "meter_reading": "<digits or null>",
-  "register_type": "<string or null>",
-  "serial_number": "<string or null>",
+  "meter_reading": "<digits on the 7-segment display or null>",
+  "register_type": "<text like kWh, kVAh, or null>",
+  "serial_number": "<printed or engraved alphanumeric code or null>",
   "confidence": "<low|medium|high>",
-  "notes": "<short note>"
+  "notes": "<very short comment>"
 }
+
+Rules:
+- Always return ONLY a valid JSON object — no explanations or markdown.
+- If uncertain, set the field to null.
+- Do not include any extra text before or after JSON.
 `;
 
     const response = await fetch(`${GEMINI_URL}?key=${API_KEY}`, {
@@ -46,12 +47,16 @@ Return ONLY pure JSON like this:
 
     const data = await response.json();
 
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-    let parsed;
+    // Extract Gemini output text safely
+    const text =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
 
+    let parsed;
     try {
-      parsed = JSON.parse(text.replace(/^```(?:json)?|```$/g, "").trim());
-    } catch {
+      // Clean up any code fences or stray characters
+      const cleanText = text.replace(/```json|```/g, "").trim();
+      parsed = JSON.parse(cleanText);
+    } catch (err) {
       parsed = {
         meter_reading: null,
         register_type: null,
@@ -61,8 +66,9 @@ Return ONLY pure JSON like this:
       };
     }
 
-    res.status(200).json({ ok: true, result: parsed, raw: text });
+    return res.status(200).json({ ok: true, result: parsed, raw: text });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+    console.error("OCR error:", err);
+    return res.status(500).json({ ok: false, error: err.message });
   }
 }

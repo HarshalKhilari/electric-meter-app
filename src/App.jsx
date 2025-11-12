@@ -1,4 +1,10 @@
 import React, { useRef, useState, useEffect } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
 export default function App() {
   const videoRef = useRef(null);
@@ -34,20 +40,34 @@ export default function App() {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     const base64 = canvas.toDataURL("image/jpeg").split(",")[1];
-
     setLoading(true);
+
     try {
       const res = await fetch("/api/ocr", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageBase64: base64 }),
       });
+
       const data = await res.json();
       setLoading(false);
 
       if (data.ok) {
         setResult(data.result);
         setRaw(data.raw);
+
+        // ✅ Save to Supabase
+        const { error } = await supabase.from("meter_records").insert([
+          {
+            reading: data.result?.meter_reading || null,
+            unit: data.result?.register_type || null,
+            meter_number: data.result?.serial_number || null,
+            notes: data.result?.notes || null,
+          },
+        ]);
+
+        if (error) console.error("Supabase insert error:", error);
+        else console.log("✅ Record saved to Supabase");
       } else {
         setResult({ error: data.error });
         setRaw("");
