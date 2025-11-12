@@ -118,6 +118,13 @@ export default function App() {
           )}
         </div>
       )}
+
+      {raw && (
+        <div className="mt-4 w-full max-w-md text-xs bg-gray-900 text-green-400 p-3 rounded-lg overflow-auto">
+          <p className="font-bold mb-1">Raw JSON from Gemini:</p>
+          <pre className="whitespace-pre-wrap break-all">{raw}</pre>
+        </div>
+      )}
     </div>
   );
 }

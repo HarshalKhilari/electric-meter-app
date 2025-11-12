@@ -1,11 +1,18 @@
+import { createClient } from "@supabase/supabase-js";
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+  const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
   try {
     const { imageBase64 } = req.body;
-    if (!imageBase64) return res.status(400).json({ error: "No image provided" });
+    if (!imageBase64)
+      return res.status(400).json({ error: "No image provided" });
 
     const GEMINI_URL =
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
@@ -14,19 +21,14 @@ export default async function handler(req, res) {
     const prompt = `
 You are a vision-based OCR system specialized in reading electricity meter images.
 
-Extract and return a JSON object with exactly the following keys:
+Return ONLY pure JSON in this format:
 {
-  "meter_reading": "<digits on the 7-segment display or null>",
-  "register_type": "<text like kWh, kVAh, or null>",
-  "serial_number": "<printed or engraved alphanumeric code or null>",
+  "meter_reading": "<digits or null>",
+  "register_type": "<string or null>",
+  "serial_number": "<string or null>",
   "confidence": "<low|medium|high>",
-  "notes": "<very short comment>"
+  "notes": "<short note>"
 }
-
-Rules:
-- Always return ONLY a valid JSON object — no explanations or markdown.
-- If uncertain, set the field to null.
-- Do not include any extra text before or after JSON.
 `;
 
     const response = await fetch(`${GEMINI_URL}?key=${API_KEY}`, {
@@ -46,17 +48,12 @@ Rules:
     });
 
     const data = await response.json();
-
-    // Extract Gemini output text safely
-    const text =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
 
     let parsed;
     try {
-      // Clean up any code fences or stray characters
-      const cleanText = text.replace(/```json|```/g, "").trim();
-      parsed = JSON.parse(cleanText);
-    } catch (err) {
+      parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+    } catch {
       parsed = {
         meter_reading: null,
         register_type: null,
@@ -66,9 +63,26 @@ Rules:
       };
     }
 
-    return res.status(200).json({ ok: true, result: parsed, raw: text });
+    // Insert into Supabase table
+    const { error: dbError } = await supabase.from("meter_records").insert([
+      {
+        reading: parsed.meter_reading,
+        unit: parsed.register_type,
+        meter_number: parsed.serial_number,
+        notes: parsed.notes,
+      },
+    ]);
+
+    if (dbError) console.error("Supabase insert error:", dbError);
+
+    return res.status(200).json({
+      ok: true,
+      result: parsed,
+      raw: text,
+      db_status: dbError ? "DB insert failed" : "Inserted OK",
+    });
   } catch (err) {
-    console.error("OCR error:", err);
+    console.error("OCR handler error:", err);
     return res.status(500).json({ ok: false, error: err.message });
   }
 }
