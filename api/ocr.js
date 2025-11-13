@@ -23,15 +23,21 @@ export default async function handler(req, res) {
 
       Given an image of an electricity meter, identify and extract the following:
       1. meter_reading — numeric value on the 7-segment display (digits and decimal point only).
-      2. register_type — label/unit near the numeric display (e.g., "kWh", "kVAh", "kW", etc.).
-      3. serial_number — printed/engraved alphanumeric ID of the meter (ignore barcodes).
+      2. register_type — label/unit near the numeric display (includes "kWh", "kVAh", "kW", "kVA").
+      3. serial_number — printed/engraved alphanumeric ID of the meter which is a 7 or 8 digit string (ignore barcodes). It is never handwritten. It is always printed text on a label, though fonts might be different.
 
       Important visual rule for the decimal point:
       - The decimal point is valid **only if it is horizontally aligned with the bottom segment line** of the digits in the 7-segment display.
       - Ignore any dot or mark that is above or misaligned with that bottom edge.
 
+      Important rule for bad quality images:
+      - Some images would be blurred, or have glare or have uneven shadows, etc. You need to perform processing on the images, to amplify the signal of the reading and the register units from the other noise.
+      - First locate the serial number if in the image, and the screen if in the image, apply preprocessing to improve clarity to undo the noise and environmental factors. Then get the digits. We want to binarize the image before extracting the digits. Hence, finding ways to remove the background or masking nosie factors from the image is a priority.
+
       Guidelines:
       - The reading must come from the 7-segment display only.
+      - Registers kWh and kVAh are always about 6-7 digit without a decimal point.
+      - Registers kW and kVA would always have a decimal point.
       - Ignore timestamps, reflections, or glare.
       - If unreadable, set field to null.
       - If partially readable, show what can be extracted and mention in notes, the reading with unreadable part underscored
