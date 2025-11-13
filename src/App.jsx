@@ -109,20 +109,8 @@ export default function App() {
               <p><b>Serial Number:</b> {result.serial_number || "—"}</p>
               <p><b>Confidence:</b> {result.confidence || "—"}</p>
               <p><b>Notes:</b> {result.notes || "—"}</p>
-
-              <hr className="my-2 border-gray-600" />
-              <p className="text-xs text-gray-400 break-all">
-                <b>Raw JSON:</b> {raw || "—"}
-              </p>
             </>
           )}
-        </div>
-      )}
-
-      {raw && (
-        <div className="mt-4 w-full max-w-md text-xs bg-gray-900 text-green-400 p-3 rounded-lg overflow-auto">
-          <p className="font-bold mb-1">Raw JSON from Gemini:</p>
-          <pre className="whitespace-pre-wrap break-all">{raw}</pre>
         </div>
       )}
     </div>
