@@ -33,80 +33,53 @@ export default function App() {
   // --------------------------------------------------------
 
   const stopCurrentStream = () => {
-      const stream = videoRef.current?.srcObject;
-      if (!stream) return;
+    const stream = videoRef.current?.srcObject;
+    if (!stream) return;
 
-      stream.getTracks().forEach(t => t.stop());
-      videoRef.current.srcObject = null;
-    };
-
-    // --------------------------------------------------------
-
-    const startCamera = async (deviceId = null) => {
-      try {
-        stopCurrentStream();
-
-        const constraints = {
-          audio: false,
-          video: deviceId
-            ? { deviceId: { exact: deviceId } }
-            : { facingMode: { exact: "environment" } }
-        };
-
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-
-        videoRef.current.srcObject = stream;
-
-      } catch (err) {
-        alert("Camera access failed: " + err.message);
-      }
-    };
+    stream.getTracks().forEach(t => t.stop());
+    videoRef.current.srcObject = null;
+  };
 
   // --------------------------------------------------------
-  const detectDefaultCamera = (cameras) => {
-    const labelsLower = cameras.map(c => ({
-      ...c,
-      labelLower: c.label.toLowerCase()
-    }));
 
-    // ✅ Best match: main back camera (has "back" AND "0")
-    let primary = labelsLower.find(
-      cam =>
-        cam.labelLower.includes("back") &&
-        cam.labelLower.includes("0")
-    );
+  const startCamera = async (deviceId = null) => {
+    try {
+      stopCurrentStream();
 
-    // ✅ Fallback: any back camera
-    if (!primary) {
-      primary = labelsLower.find(
-        cam => cam.labelLower.includes("back")
-      );
+      const constraints = {
+        audio: false,
+        video: deviceId
+          ? { deviceId: { exact: deviceId } }
+          : { facingMode: { exact: "environment" } }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      videoRef.current.srcObject = stream;
+
+    } catch (err) {
+      alert("Camera access failed: " + err.message);
     }
-
-    // ✅ Final fallback: first available camera
-    if (!primary && cameras.length > 0) {
-      primary = cameras[0];
-    }
-
-    return primary || null;
   };
 
   // --------------------------------------------------------
 
   const listCameras = async () => {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const cameras = devices.filter(d => d.kind === "videoinput");
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
 
-    setCameras(cameras);
+      const cams = devices.filter(d => d.kind === "videoinput");
+      setCameras(cams);
 
-    const defaultCam = detectDefaultCamera(cameras);
+      // set default selected camera
+      if (!selectedCameraId && cams.length > 0) {
+        setSelectedCameraId(cams[0].deviceId);
+      }
 
-    if (defaultCam) {
-      setSelectedCameraId(defaultCam.deviceId);
-      startCamera(defaultCam.deviceId);
+    } catch (err) {
+      console.error("Enumerate failed:", err);
     }
   };
-
 
   // --------------------------------------------------------
 
