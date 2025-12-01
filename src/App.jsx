@@ -14,47 +14,110 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [raw, setRaw] = useState("");
 
-  // ✅ NEW: holds frozen preview image
+  // ✅ preview / capture state
   const [previewImage, setPreviewImage] = useState(null);
 
+  // ✅ camera switching
+  const [cameras, setCameras] = useState([]);
+  const [selectedCameraId, setSelectedCameraId] = useState(null);
+
   useEffect(() => {
-    startCamera();
+    const init = async () => {
+      await startCamera();
+      await listCameras();
+    };
+
+    init();
   }, []);
 
-  const startCamera = async () => {
+  // --------------------------------------------------------
+
+  const stopCurrentStream = () => {
+    const stream = videoRef.current?.srcObject;
+    if (!stream) return;
+
+    stream.getTracks().forEach(t => t.stop());
+    videoRef.current.srcObject = null;
+  };
+
+  // --------------------------------------------------------
+
+  const startCamera = async (deviceId = null) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { exact: "environment" } },
+      stopCurrentStream();
+
+      const constraints = {
         audio: false,
-      });
+        video: deviceId
+          ? { deviceId: { exact: deviceId } }
+          : { facingMode: { exact: "environment" } }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
       videoRef.current.srcObject = stream;
+
     } catch (err) {
       alert("Camera access failed: " + err.message);
     }
   };
 
-  // --------------------------------------------------------------------------------
+  // --------------------------------------------------------
 
-  // ✅ single click handler now handles both capture & restart flow
+  const listCameras = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+
+      const cams = devices.filter(d => d.kind === "videoinput");
+      setCameras(cams);
+
+      // set default selected camera
+      if (!selectedCameraId && cams.length > 0) {
+        setSelectedCameraId(cams[0].deviceId);
+      }
+
+    } catch (err) {
+      console.error("Enumerate failed:", err);
+    }
+  };
+
+  // --------------------------------------------------------
+
+  const handleCameraChange = (e) => {
+    const newId = e.target.value;
+
+    setSelectedCameraId(newId);
+
+    // reset preview / OCR state
+    setPreviewImage(null);
+    setResult(null);
+    setRaw("");
+
+    // restart camera with chosen lens
+    startCamera(newId);
+  };
+
+  // --------------------------------------------------------
+
   const handleCaptureClick = () => {
     if (previewImage) {
-      // Reset back to LIVE CAMERA mode
+      // back to live camera
       setPreviewImage(null);
       setResult(null);
       setRaw("");
-      startCamera();
+
+      startCamera(selectedCameraId);
+
     } else {
       captureImage();
     }
   };
 
-  // --------------------------------------------------------------------------------
+  // --------------------------------------------------------
 
   const captureImage = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-
     if (!video || !canvas) return;
 
     const ctx = canvas.getContext("2d");
@@ -63,11 +126,10 @@ export default function App() {
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // ✅ Save preview image immediately
+    // save preview
     const captureUrl = canvas.toDataURL("image/jpeg");
     setPreviewImage(captureUrl);
 
-    // OCR uses base64 only (no prefix)
     const base64 = captureUrl.split(",")[1];
 
     setLoading(true);
@@ -86,7 +148,6 @@ export default function App() {
         setResult(data.result);
         setRaw(data.raw);
 
-        // ✅ Save to Supabase
         const { error } = await supabase.from("meter_records").insert([
           {
             reading: data.result?.meter_reading || null,
@@ -98,23 +159,40 @@ export default function App() {
 
         if (error) console.error("Supabase insert error:", error);
         else console.log("✅ Record saved to Supabase");
+
       } else {
         setResult({ error: data.error });
         setRaw("");
       }
+
     } catch (err) {
       setLoading(false);
       setResult({ error: err.message });
     }
   };
 
-  // --------------------------------------------------------------------------------
+  // --------------------------------------------------------
 
   return (
     <div className="flex flex-col items-center bg-black text-white min-h-screen p-4">
       <h1 className="text-xl font-bold mb-4">⚡ Meter OCR (Gemini)</h1>
 
-      {/* ✅ SWITCH: Live camera OR frozen preview */}
+      {/* Camera selector */}
+      {cameras.length > 0 && (
+        <select
+          className="mb-3 bg-gray-800 text-white px-2 py-1 rounded"
+          value={selectedCameraId || ""}
+          onChange={handleCameraChange}
+        >
+          {cameras.map((cam, i) => (
+            <option key={cam.deviceId} value={cam.deviceId}>
+              {cam.label || `Camera ${i + 1}`}
+            </option>
+          ))}
+        </select>
+      )}
+
+      {/* Live or preview */}
       {previewImage ? (
         <img
           src={previewImage}
@@ -132,7 +210,7 @@ export default function App() {
 
       <canvas ref={canvasRef} className="hidden"></canvas>
 
-      {/* ✅ SINGLE BUTTON CONTROLS BOTH MODES */}
+      {/* Capture / Restart */}
       <button
         onClick={handleCaptureClick}
         disabled={loading}
@@ -160,6 +238,7 @@ export default function App() {
           )}
         </div>
       )}
+
     </div>
   );
 }
