@@ -29,6 +29,26 @@ export default function App() {
     }
   };
 
+  const listCameras = async () => {
+    // Ask permission first so labels are populated
+    await navigator.mediaDevices.getUserMedia({ video: true });
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+
+    const cameras = devices.filter((d) => d.kind === "videoinput");
+
+    cameras.forEach((cam, i) => {
+      console.log(
+        `#${i}`,
+        "id:", cam.deviceId,
+        "label:", cam.label,
+        "group:", cam.groupId
+      );
+    });
+
+    return cameras;
+  };
+
   const captureImage = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
