@@ -64,22 +64,53 @@ export default function App() {
 
   // --------------------------------------------------------
 
-  const listCameras = async () => {
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
+const getAllCameras = async () => {
+  const devices = await navigator.mediaDevices.enumerateDevices();
 
-      const cams = devices.filter(d => d.kind === "videoinput");
-      setCameras(cams);
+  const cameras = devices.filter(
+    device => device.kind === "videoinput"
+  );
 
-      // set default selected camera
-      if (!selectedCameraId && cams.length > 0) {
-        setSelectedCameraId(cams[0].deviceId);
-      }
+  return cameras;
+};
 
-    } catch (err) {
-      console.error("Enumerate failed:", err);
-    }
-  };
+const findMainBackCamera = (cameras) => {
+  return (
+    cameras.find(cam =>
+      cam.label.includes("back") &&
+      cam.label.includes("0")
+    )
+    ||
+    cameras.find(cam =>
+      cam.label.includes("back")
+    )
+    ||
+    cameras[0]
+    ||
+    null
+  );
+};
+
+const listCameras = async () => {
+  const cameras = await getAllCameras();
+
+  setCameras(cameras);
+
+  selectDefaultCamera(cameras);
+};
+
+
+const selectDefaultCamera = (cameras) => {
+  const chosen = findMainBackCamera(cameras);
+
+  if (!chosen) return null;
+
+  setSelectedCameraId(chosen.deviceId);
+  startCamera(chosen.deviceId);
+
+  return chosen;
+};
+
 
   // --------------------------------------------------------
 
