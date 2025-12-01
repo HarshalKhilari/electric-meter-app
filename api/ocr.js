@@ -24,7 +24,7 @@ export default async function handler(req, res) {
       Given an image of an electricity meter, identify and extract the following:
       1. meter_reading — numeric value on the 7-segment display (digits and decimal point only).
       2. register_type — label/unit near the numeric display (includes "kWh", "kVAh", "kW", "kVA").
-      3. serial_number — printed/engraved alphanumeric ID of the meter which is a 7 or 8 digit string (ignore barcodes). It is never handwritten. It is always printed text on a label, though fonts might be different.
+      3. serial_number — printed/engraved alphanumeric ID of the meter which is a 7 or 8 digit string (ignore barcodes). It is never handwritten. It is always printed text on a label, though fonts might be different and larger than the surrounding text like 'Property of..', voltage, ampere, hz, code, etc.
 
       Important visual rule for the decimal point:
       - The decimal point is valid **only if it is horizontally aligned with the bottom segment line** of the digits in the 7-segment display.
@@ -44,6 +44,7 @@ export default async function handler(req, res) {
       - For some meters, the serial number is followed by contiguous numbers like 123 or 1234 followed by a date month or year month pair like 06/05. Ignore those and extract the preceeding serial number.
       - Return confidence as "high", "medium", or "low".
       - Keep notes short.
+      - The serial number will be above or below a barcode with a larger font than its surrounding text. If partially visible, show only that
 
       Respond strictly in **pure JSON** (no markdown or code fences):
       {
