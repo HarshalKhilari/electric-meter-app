@@ -9,12 +9,17 @@ const supabase = createClient(
 export default function App() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [raw, setRaw] = useState("");
 
+  // ✅ NEW STATE: store camera list
+  const [cameraInfo, setCameraInfo] = useState([]);
+
   useEffect(() => {
     startCamera();
+    listCameras();        // ✅ load camera info on startup
   }, []);
 
   const startCamera = async () => {
@@ -29,14 +34,16 @@ export default function App() {
     }
   };
 
+  // ✅ MODIFIED: save cameras to React state instead of only console.log
   const listCameras = async () => {
-    // Ask permission first so labels are populated
+    // Ask permission so labels exist
     await navigator.mediaDevices.getUserMedia({ video: true });
 
     const devices = await navigator.mediaDevices.enumerateDevices();
 
     const cameras = devices.filter((d) => d.kind === "videoinput");
 
+    console.log("---- CAMERAS FOUND ----");
     cameras.forEach((cam, i) => {
       console.log(
         `#${i}`,
@@ -46,7 +53,7 @@ export default function App() {
       );
     });
 
-    return cameras;
+    setCameraInfo(cameras);   // ✅ THIS makes info usable in JSX
   };
 
   const captureImage = async () => {
@@ -76,7 +83,6 @@ export default function App() {
         setResult(data.result);
         setRaw(data.raw);
 
-        // ✅ Save to Supabase
         const { error } = await supabase.from("meter_records").insert([
           {
             reading: data.result?.meter_reading || null,
@@ -118,6 +124,7 @@ export default function App() {
         {loading ? "Processing..." : "📸 Capture"}
       </button>
 
+      {/* ---------- OCR RESULT PANEL ---------- */}
       {result && (
         <div className="mt-6 w-full max-w-md text-left bg-gray-800 p-4 rounded-lg">
           {result.error ? (
@@ -131,6 +138,22 @@ export default function App() {
               <p><b>Notes:</b> {result.notes || "—"}</p>
             </>
           )}
+        </div>
+      )}
+
+      {/* ---------- CAMERA DEBUG PANEL ---------- */}
+      {cameraInfo.length > 0 && (
+        <div className="mt-4 w-full max-w-md text-left bg-gray-900 p-4 rounded-lg text-sm">
+          <p className="font-bold mb-2">📷 Detected Cameras</p>
+
+          {cameraInfo.map((cam, i) => (
+            <div key={cam.deviceId} className="mb-2 border-b border-gray-700 pb-1">
+              <p><b>#{i}</b></p>
+              <p>Label: {cam.label || "Unknown"}</p>
+              <p>ID: {cam.deviceId}</p>
+              <p>Group: {cam.groupId}</p>
+            </div>
+          ))}
         </div>
       )}
     </div>
