@@ -27,65 +27,90 @@ const loadOpenCV = () => {
 const processWithOpenCV = async (canvas) => {
   await loadOpenCV();
 
-  let src = cv.imread(canvas);
+  const src = cv.imread(canvas);
+
+  // ✅ Validate image
+  if (!src || src.cols === 0 || src.rows === 0) {
+    if (src) src.delete();
+    throw new Error("Empty canvas image.");
+  }
 
   let lab = new cv.Mat();
-  let labChannels = new cv.MatVector();
   let merged = new cv.Mat();
   let resized = new cv.Mat();
+  let channels = new cv.MatVector();
 
-  // ---- Convert RGB to LAB
+  // Convert to LAB
   cv.cvtColor(src, lab, cv.COLOR_RGBA2LAB);
 
-  // ---- Split L,A,B channels
-  cv.split(lab, labChannels);
+  // Split channels safely
+  cv.split(lab, channels);
+  if (channels.size() !== 3) {
+    src.delete();
+    lab.delete();
+    channels.delete();
+    throw new Error("LAB channel split failed.");
+  }
 
-  let L = labChannels.get(0);
-  let A = labChannels.get(1);
-  let B = labChannels.get(2);
+  let L = channels.get(0);
+  let A = channels.get(1);
+  let B = channels.get(2);
 
-  // ---- Apply CLAHE ONLY to L channel
-  let clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
+  // Apply CLAHE only to L
+  const clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
   clahe.apply(L, L);
 
-  // ---- Merge back L + A + B
-  labChannels.set(0, L);
-  labChannels.set(1, A);
-  labChannels.set(2, B);
+  // Merge back
+  let mergedChannels = new cv.MatVector();
+  mergedChannels.push_back(L);
+  mergedChannels.push_back(A);
+  mergedChannels.push_back(B);
 
-  cv.merge(labChannels, merged);
+  cv.merge(mergedChannels, merged);
 
-  // ---- Convert back to RGB
+  // Convert back to RGBA
   cv.cvtColor(merged, merged, cv.COLOR_LAB2RGBA);
 
-  // ------------------------------------------------
-  // Resize to target width WITHOUT sharpening
-  // ------------------------------------------------
+  // ✅ Safe resize calculation
   const TARGET_WIDTH = 720;
 
-  const scale = TARGET_WIDTH / merged.cols;
-  const newHeight = Math.round(merged.rows * scale);
+  const width = merged.cols;
+  const height = merged.rows;
 
-  const size = new cv.Size(TARGET_WIDTH, newHeight);
-  cv.resize(merged, resized, size, 0, 0, cv.INTER_AREA);
+  if (width === 0 || height === 0) {
+    throw new Error("Invalid dimensions after CLAHE");
+  }
 
-  // ---- Render back to canvas
+  const scale = TARGET_WIDTH / width;
+  const newHeight = Math.round(height * scale);
+
+  cv.resize(
+    merged,
+    resized,
+    new cv.Size(TARGET_WIDTH, newHeight),
+    0,
+    0,
+    cv.INTER_AREA
+  );
+
   canvas.width = TARGET_WIDTH;
   canvas.height = newHeight;
   cv.imshow(canvas, resized);
 
-  const base64 = canvas.toDataURL("image/jpeg").split(",")[1];
+  const base64 = canvas.toDataURL("image/jpeg", 0.9).split(",")[1];
 
-  // ---- Cleanup
+  // Cleanup all mats
   src.delete();
   lab.delete();
-  labChannels.delete();
   merged.delete();
   resized.delete();
+  channels.delete();
+  mergedChannels.delete();
   clahe.delete();
 
   return base64;
 };
+
 
 
 // --------------------------------------------------------
