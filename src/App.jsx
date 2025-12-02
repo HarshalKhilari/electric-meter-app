@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
+import Tesseract from "tesseract.js";
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -25,8 +26,8 @@ const loadOpenCV = () => {
 // Client-side preprocessing:
 //  - grayscale
 //  - CLAHE
-//  - sharpen (unblur)
-//  - resize to 720px width
+//  - sharpen
+//  - resize to 512px width
 // --------------------------------------------------------
 const processWithOpenCV = async (canvas) => {
   await loadOpenCV();
@@ -37,42 +38,32 @@ const processWithOpenCV = async (canvas) => {
   let sharpened = new cv.Mat();
   let resized = new cv.Mat();
 
-  // Grayscale
   cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-  // CLAHE
   const clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
   clahe.apply(gray, clahed);
 
-  // Sharpen filter
-  const kernel = cv.matFromArray(
-    3,
-    3,
-    cv.CV_32F,
-    [
-      0, -1, 0,
-     -1,  5, -1,
-      0, -1, 0,
-    ]
-  );
+  const kernel = cv.matFromArray(3, 3, cv.CV_32F, [
+     0, -1, 0,
+    -1,  5, -1,
+     0, -1, 0
+  ]);
   cv.filter2D(clahed, sharpened, cv.CV_8U, kernel);
 
-  // Resize → 720px width
-  const TARGET_WIDTH = 720;
+  const TARGET_WIDTH = 512;
   const scale = TARGET_WIDTH / sharpened.cols;
   const newHeight = Math.round(sharpened.rows * scale);
   const newSize = new cv.Size(TARGET_WIDTH, newHeight);
 
   cv.resize(sharpened, resized, newSize, 0, 0, cv.INTER_AREA);
 
-  // Draw back to canvas
   canvas.width = TARGET_WIDTH;
   canvas.height = newHeight;
+
   cv.imshow(canvas, resized);
 
-  const base64 = canvas.toDataURL("image/jpeg").split(",")[1];
+  const base64 = canvas.toDataURL("image/jpeg", 0.6).split(",")[1];
 
-  // Cleanup
   src.delete();
   gray.delete();
   clahed.delete();
@@ -85,6 +76,21 @@ const processWithOpenCV = async (canvas) => {
 };
 
 // --------------------------------------------------------
+// TESSERACT OCR - 7 Segment Optimized
+// --------------------------------------------------------
+const runLocalOCR = async (base64) => {
+  const image = `data:image/jpeg;base64,${base64}`;
+
+  const { data } = await Tesseract.recognize(image, "eng", {
+    tessedit_char_whitelist: "0123456789.",
+    tessedit_pageseg_mode: "7"
+  });
+
+  const text = data.text.replace(/[^\d.]/g, "").trim();
+  return text;
+};
+
+// --------------------------------------------------------
 
 export default function App() {
   const videoRef = useRef(null);
@@ -93,18 +99,14 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [raw, setRaw] = useState("");
-
-  // Preview / capture state
   const [previewImage, setPreviewImage] = useState(null);
 
-  // Camera list + selected camera
   const [cameras, setCameras] = useState([]);
   const [selectedCameraId, setSelectedCameraId] = useState(null);
 
   useEffect(() => {
     const init = async () => {
       try {
-        // Ask permission so labels populate
         const tempStream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false,
@@ -126,23 +128,21 @@ export default function App() {
     const stream = videoRef.current?.srcObject;
     if (!stream) return;
 
-    stream.getTracks().forEach((t) => t.stop());
+    stream.getTracks().forEach(t => t.stop());
     videoRef.current.srcObject = null;
   };
 
-  // --------------------------------------------------------
   const startCamera = async (deviceId = null) => {
     try {
       stopCurrentStream();
 
-      const constraints = {
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: deviceId
           ? { deviceId: { exact: deviceId } }
-          : { facingMode: { exact: "environment" } },
-      };
+          : { facingMode: { exact: "environment" } }
+      });
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       videoRef.current.srcObject = stream;
     } catch (err) {
       alert("Camera access failed: " + err.message);
@@ -152,33 +152,27 @@ export default function App() {
   // --------------------------------------------------------
   const getAllCameras = async () => {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    return devices.filter((d) => d.kind === "videoinput");
+    return devices.filter(d => d.kind === "videoinput");
   };
 
-  // --------------------------------------------------------
   const findMainBackCamera = (cams) => {
-    if (!cams || cams.length === 0) return null;
+    if (!cams.length) return null;
 
     return (
-      cams.find((c) => c.label.includes("back") && c.label.includes("0")) ||
-      cams.find((c) => c.label.includes("back")) ||
-      cams[0] ||
-      null
+      cams.find(c => c.label.includes("back") && c.label.includes("0")) ||
+      cams.find(c => c.label.includes("back")) ||
+      cams[0]
     );
   };
 
-  // --------------------------------------------------------
-  const selectDefaultCamera = (cams) => {
+  const selectDefaultCamera = async (cams) => {
     const chosen = findMainBackCamera(cams);
-    if (!chosen) return null;
+    if (!chosen) return;
 
     setSelectedCameraId(chosen.deviceId);
     startCamera(chosen.deviceId);
-
-    return chosen;
   };
 
-  // --------------------------------------------------------
   const listCameras = async () => {
     const cams = await getAllCameras();
     setCameras(cams);
@@ -186,6 +180,7 @@ export default function App() {
   };
 
   // --------------------------------------------------------
+
   const handleCameraChange = (e) => {
     const newId = e.target.value;
 
@@ -197,7 +192,6 @@ export default function App() {
     startCamera(newId);
   };
 
-  // --------------------------------------------------------
   const handleCaptureClick = () => {
     if (previewImage) {
       setPreviewImage(null);
@@ -210,34 +204,37 @@ export default function App() {
   };
 
   // --------------------------------------------------------
-  // Capture → preview → preprocess (OpenCV) → OCR
+  // Capture -> OpenCV preprocess -> Tesseract OCR -> Gemini background
+  // --------------------------------------------------------
   const captureImage = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-
     if (!video || !canvas) return;
 
     const ctx = canvas.getContext("2d");
-
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // Show raw preview
-    const previewUrl = canvas.toDataURL("image/jpeg");
-    setPreviewImage(previewUrl);
-
+    setPreviewImage(canvas.toDataURL("image/jpeg", 0.6));
     setLoading(true);
 
     try {
-      // Preprocess client-side
+      // --- Preprocess locally
       const base64 = await processWithOpenCV(canvas);
 
+      // --- FAST OCR (Local)
+      const localText = await runLocalOCR(base64);
+      setResult({
+        meter_reading: localText,
+        notes: "Local OCR result (instant)"
+      });
+
+      // --- BACKGROUND OCR (Gemini)
       const res = await fetch("/api/ocr", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64 }),
+        body: JSON.stringify({ imageBase64: base64 })
       });
 
       const data = await res.json();
@@ -247,21 +244,16 @@ export default function App() {
         setResult(data.result);
         setRaw(data.raw);
 
-        const { error } = await supabase.from("meter_records").insert([
+        await supabase.from("meter_records").insert([
           {
-            reading: data.result?.meter_reading || null,
+            reading: data.result?.meter_reading || localText || null,
             unit: data.result?.register_type || null,
             meter_number: data.result?.serial_number || null,
             notes: data.result?.notes || null,
           },
         ]);
-
-        if (error) console.error("Supabase insert error:", error);
-        else console.log("✅ Record saved to Supabase");
-      } else {
-        setResult({ error: data.error });
-        setRaw("");
       }
+
     } catch (err) {
       setLoading(false);
       setResult({ error: err.message });
@@ -273,10 +265,9 @@ export default function App() {
   return (
     <div className="flex flex-col items-center bg-black text-white min-h-screen p-4">
       <h1 className="text-xl font-bold mb-4">
-        ⚡ Meter OCR (Client-side OpenCV preprocessing)
+        ⚡ Meter OCR (OpenCV + Tesseract local OCR)
       </h1>
 
-      {/* Camera selector */}
       {cameras.length > 0 && (
         <select
           className="mb-3 bg-gray-800 text-white px-2 py-1 rounded"
@@ -291,13 +282,8 @@ export default function App() {
         </select>
       )}
 
-      {/* Live or preview */}
       {previewImage ? (
-        <img
-          src={previewImage}
-          alt="Preview"
-          className="w-full max-w-md rounded-lg"
-        />
+        <img src={previewImage} className="w-full max-w-md rounded-lg" />
       ) : (
         <video
           ref={videoRef}
@@ -307,9 +293,8 @@ export default function App() {
         />
       )}
 
-      <canvas ref={canvasRef} className="hidden"></canvas>
+      <canvas ref={canvasRef} className="hidden" />
 
-      {/* Capture / Restart */}
       <button
         onClick={handleCaptureClick}
         disabled={loading}
@@ -325,9 +310,6 @@ export default function App() {
           ) : (
             <>
               <p><b>Meter Reading:</b> {result.meter_reading || "—"}</p>
-              <p><b>Register Type:</b> {result.register_type || "—"}</p>
-              <p><b>Serial Number:</b> {result.serial_number || "—"}</p>
-              <p><b>Confidence:</b> {result.confidence || "—"}</p>
               <p><b>Notes:</b> {result.notes || "—"}</p>
             </>
           )}
