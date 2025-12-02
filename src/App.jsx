@@ -30,7 +30,6 @@ const processWithOpenCV = async (canvas) => {
   let src = cv.imread(canvas);
   let gray = new cv.Mat();
   let clahed = new cv.Mat();
-  let sharpened = new cv.Mat();
   let resized = new cv.Mat();
 
   cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
@@ -55,9 +54,7 @@ const processWithOpenCV = async (canvas) => {
   src.delete();
   gray.delete();
   clahed.delete();
-  sharpened.delete();
   resized.delete();
-  kernel.delete();
   clahe.delete();
 
   return base64;
