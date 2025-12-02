@@ -22,149 +22,84 @@ const loadOpenCV = () => {
 };
 
 // --------------------------------------------------------
-// Client-side preprocessing pipeline
+// Client-side preprocessing:
+//  - grayscale
+//  - CLAHE
+//  - sharpen (unblur)
+//  - resize to 720px width
 // --------------------------------------------------------
 const processWithOpenCV = async (canvas) => {
   await loadOpenCV();
 
-  // -------------------------------------------------
-  // 1. Strict image validation
-  // -------------------------------------------------
-  const src = cv.imread(canvas);
+  let src = cv.imread(canvas);
+  let gray = new cv.Mat();
+  let clahed = new cv.Mat();
+  let sharpened = new cv.Mat();
+  let resized = new cv.Mat();
 
-  const w = src.cols;
-  const h = src.rows;
+  // Grayscale
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
-    src.delete();
-    throw new Error(`Invalid image size: ${w} x ${h}`);
-  }
-
-  // -------------------------------------------------
-  // 2. LAB color CLAHE
-  // -------------------------------------------------
-  const lab = new cv.Mat();
-  const channels = new cv.MatVector();
-  const merged = new cv.Mat();
-  const resized = new cv.Mat();
-
-  cv.cvtColor(src, lab, cv.COLOR_RGBA2LAB);
-  cv.split(lab, channels);
-
-  if (channels.size() !== 3) {
-    src.delete();
-    lab.delete();
-    channels.delete();
-    throw new Error("LAB split failed");
-  }
-
-  const L = channels.get(0);
-  const A = channels.get(1);
-  const B = channels.get(2);
-
+  // CLAHE
   const clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
-  clahe.apply(L, L);
+  clahe.apply(gray, clahed);
 
-  const mergeChannels = new cv.MatVector();
-  mergeChannels.push_back(L);
-  mergeChannels.push_back(A);
-  mergeChannels.push_back(B);
+  // Resize → 720px width
+  const TARGET_WIDTH = 512;
+  const scale = TARGET_WIDTH / clahed.cols;
+  const newHeight = Math.round(clahed.rows * scale);
+  const newSize = new cv.Size(TARGET_WIDTH, newHeight);
 
-  cv.merge(mergeChannels, merged);
-  cv.cvtColor(merged, merged, cv.COLOR_LAB2RGBA);
+  cv.resize(clahed, resized, newSize, 0, 0, cv.INTER_AREA);
 
-  // -------------------------------------------------
-  // 3. Safe resize calculations
-  // -------------------------------------------------
-  const TARGET_WIDTH = 720;
-
-  let scale = TARGET_WIDTH / merged.cols;
-  let newHeight = Math.round(merged.rows * scale);
-
-  if (
-    !Number.isFinite(scale) ||
-    !Number.isFinite(newHeight) ||
-    newHeight <= 0 ||
-    TARGET_WIDTH <= 0
-  ) {
-    src.delete();
-    lab.delete();
-    channels.delete();
-    merged.delete();
-    resized.delete();
-    mergeChannels.delete();
-    clahe.delete();
-
-    throw new Error(
-      `Invalid resize values: width=${merged.cols}, height=${merged.rows}, newHeight=${newHeight}`
-    );
-  }
-
-  // -------------------------------------------------
-  // 4. Resize
-  // -------------------------------------------------
-  cv.resize(
-    merged,
-    resized,
-    new cv.Size(TARGET_WIDTH, newHeight),
-    0,
-    0,
-    cv.INTER_AREA
-  );
-
-  // -------------------------------------------------
-  // 5. Render result
-  // -------------------------------------------------
+  // Draw back to canvas
   canvas.width = TARGET_WIDTH;
   canvas.height = newHeight;
-
   cv.imshow(canvas, resized);
 
-  const base64 = canvas.toDataURL("image/jpeg", 0.9).split(",")[1];
+  const base64 = canvas.toDataURL("image/jpeg").split(",")[1];
 
-  // -------------------------------------------------
-  // 6. Cleanup
-  // -------------------------------------------------
+  // Cleanup
   src.delete();
-  lab.delete();
-  channels.delete();
-  merged.delete();
+  gray.delete();
+  clahed.delete();
+  sharpened.delete();
   resized.delete();
-  mergeChannels.delete();
+  kernel.delete();
   clahe.delete();
 
   return base64;
 };
-
-
-
 
 // --------------------------------------------------------
 
 export default function App() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const fileInputRef = useRef(null);
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [raw, setRaw] = useState("");
+
+  // Preview / capture state
   const [previewImage, setPreviewImage] = useState(null);
 
+  // Camera list + selected camera
   const [cameras, setCameras] = useState([]);
   const [selectedCameraId, setSelectedCameraId] = useState(null);
 
   useEffect(() => {
     const init = async () => {
       try {
+        // Ask permission so labels populate
         const tempStream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false,
         });
 
         tempStream.getTracks().forEach((t) => t.stop());
-        await listCameras();
 
+        await listCameras();
       } catch (err) {
         alert("Camera permission failed: " + err.message);
       }
@@ -174,13 +109,15 @@ export default function App() {
   }, []);
 
   // --------------------------------------------------------
-
   const stopCurrentStream = () => {
     const stream = videoRef.current?.srcObject;
     if (!stream) return;
+
     stream.getTracks().forEach((t) => t.stop());
+    videoRef.current.srcObject = null;
   };
 
+  // --------------------------------------------------------
   const startCamera = async (deviceId = null) => {
     try {
       stopCurrentStream();
@@ -189,42 +126,46 @@ export default function App() {
         audio: false,
         video: deviceId
           ? { deviceId: { exact: deviceId } }
-          : { facingMode: { exact: "environment" } }
+          : { facingMode: { exact: "environment" } },
       };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       videoRef.current.srcObject = stream;
-
     } catch (err) {
       alert("Camera access failed: " + err.message);
     }
   };
 
   // --------------------------------------------------------
-
   const getAllCameras = async () => {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    return devices.filter(d => d.kind === "videoinput");
+    return devices.filter((d) => d.kind === "videoinput");
   };
 
+  // --------------------------------------------------------
   const findMainBackCamera = (cams) => {
-    if (!cams.length) return null;
+    if (!cams || cams.length === 0) return null;
 
     return (
-      cams.find(c => c.label.includes("back") && c.label.includes("0")) ||
-      cams.find(c => c.label.includes("back")) ||
-      cams[0]
+      cams.find((c) => c.label.includes("back") && c.label.includes("0")) ||
+      cams.find((c) => c.label.includes("back")) ||
+      cams[0] ||
+      null
     );
   };
 
+  // --------------------------------------------------------
   const selectDefaultCamera = (cams) => {
     const chosen = findMainBackCamera(cams);
-    if (!chosen) return;
+    if (!chosen) return null;
 
     setSelectedCameraId(chosen.deviceId);
     startCamera(chosen.deviceId);
+
+    return chosen;
   };
 
+  // --------------------------------------------------------
   const listCameras = async () => {
     const cams = await getAllCameras();
     setCameras(cams);
@@ -232,7 +173,6 @@ export default function App() {
   };
 
   // --------------------------------------------------------
-
   const handleCameraChange = (e) => {
     const newId = e.target.value;
 
@@ -245,72 +185,6 @@ export default function App() {
   };
 
   // --------------------------------------------------------
-  // IMAGE UPLOAD HANDLER
-  // --------------------------------------------------------
-  const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-
-    reader.onload = async () => {
-      const img = new Image();
-
-      img.onload = async () => {
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext("2d");
-
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0);
-
-        setPreviewImage(canvas.toDataURL("image/jpeg"));
-        setLoading(true);
-
-        try {
-          const base64 = await processWithOpenCV(canvas);
-
-          const res = await fetch("/api/ocr", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageBase64: base64 }),
-          });
-
-          const data = await res.json();
-          setLoading(false);
-
-          if (data.ok) {
-            setResult(data.result);
-            setRaw(data.raw);
-
-            await supabase.from("meter_records").insert([
-              {
-                reading: data.result?.meter_reading || null,
-                unit: data.result?.register_type || null,
-                meter_number: data.result?.serial_number || null,
-                notes: data.result?.notes || null,
-              },
-            ]);
-          } else {
-            setResult({ error: data.error });
-            setRaw("");
-          }
-
-        } catch (err) {
-          setLoading(false);
-          setResult({ error: err.message });
-        }
-      };
-
-      img.src = reader.result;
-    };
-
-    reader.readAsDataURL(file);
-  };
-
-  // --------------------------------------------------------
-  // CAMERA CAPTURE
-  // --------------------------------------------------------
   const handleCaptureClick = () => {
     if (previewImage) {
       setPreviewImage(null);
@@ -322,6 +196,8 @@ export default function App() {
     }
   };
 
+  // --------------------------------------------------------
+  // Capture → preview → preprocess (OpenCV) → OCR
   const captureImage = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -332,12 +208,17 @@ export default function App() {
 
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0);
 
-    setPreviewImage(canvas.toDataURL("image/jpeg"));
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Show raw preview
+    const previewUrl = canvas.toDataURL("image/jpeg");
+    setPreviewImage(previewUrl);
+
     setLoading(true);
 
     try {
+      // Preprocess client-side
       const base64 = await processWithOpenCV(canvas);
 
       const res = await fetch("/api/ocr", {
@@ -353,7 +234,7 @@ export default function App() {
         setResult(data.result);
         setRaw(data.raw);
 
-        await supabase.from("meter_records").insert([
+        const { error } = await supabase.from("meter_records").insert([
           {
             reading: data.result?.meter_reading || null,
             unit: data.result?.register_type || null,
@@ -362,11 +243,12 @@ export default function App() {
           },
         ]);
 
+        if (error) console.error("Supabase insert error:", error);
+        else console.log("✅ Record saved to Supabase");
       } else {
         setResult({ error: data.error });
         setRaw("");
       }
-
     } catch (err) {
       setLoading(false);
       setResult({ error: err.message });
@@ -377,11 +259,11 @@ export default function App() {
 
   return (
     <div className="flex flex-col items-center bg-black text-white min-h-screen p-4">
-
       <h1 className="text-xl font-bold mb-4">
-        ⚡ Meter OCR (Camera + Upload)
+        ⚡ Meter OCR (Client-side OpenCV preprocessing)
       </h1>
 
+      {/* Camera selector */}
       {cameras.length > 0 && (
         <select
           className="mb-3 bg-gray-800 text-white px-2 py-1 rounded"
@@ -396,8 +278,13 @@ export default function App() {
         </select>
       )}
 
+      {/* Live or preview */}
       {previewImage ? (
-        <img src={previewImage} className="w-full max-w-md rounded-lg" />
+        <img
+          src={previewImage}
+          alt="Preview"
+          className="w-full max-w-md rounded-lg"
+        />
       ) : (
         <video
           ref={videoRef}
@@ -407,39 +294,19 @@ export default function App() {
         />
       )}
 
-      <canvas ref={canvasRef} className="hidden" />
+      <canvas ref={canvasRef} className="hidden"></canvas>
 
-      {/* Upload + Capture Controls */}
-      <div className="flex gap-4 mt-4">
-
-        <input
-          type="file"
-          accept="image/*"
-          ref={fileInputRef}
-          onChange={handleImageUpload}
-          className="hidden"
-        />
-
-        <button
-          onClick={() => fileInputRef.current.click()}
-          disabled={loading}
-          className="bg-blue-500 text-white px-6 py-2 rounded-full font-bold"
-        >
-          📂 Upload
-        </button>
-
-        <button
-          onClick={handleCaptureClick}
-          disabled={loading}
-          className="bg-yellow-500 text-black px-6 py-2 rounded-full font-bold"
-        >
-          {loading ? "Processing..." : previewImage ? "📸 Capture Again" : "📸 Capture"}
-        </button>
-
-      </div>
+      {/* Capture / Restart */}
+      <button
+        onClick={handleCaptureClick}
+        disabled={loading}
+        className="mt-4 bg-yellow-500 text-black px-6 py-2 rounded-full font-bold"
+      >
+        {loading ? "Processing..." : previewImage ? "📸 Capture Again" : "📸 Capture"}
+      </button>
 
       {result && (
-        <div className="mt-6 w-full max-w-md bg-gray-800 p-4 rounded-lg text-left">
+        <div className="mt-6 w-full max-w-md text-left bg-gray-800 p-4 rounded-lg">
           {result.error ? (
             <p className="text-red-400">Error: {result.error}</p>
           ) : (
@@ -453,7 +320,6 @@ export default function App() {
           )}
         </div>
       )}
-
     </div>
   );
 }
