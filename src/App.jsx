@@ -14,34 +14,46 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [raw, setRaw] = useState("");
 
-  // ✅ preview / capture state
+  // Preview / capture state
   const [previewImage, setPreviewImage] = useState(null);
 
-  // ✅ camera switching
+  // Camera list + selected camera
   const [cameras, setCameras] = useState([]);
   const [selectedCameraId, setSelectedCameraId] = useState(null);
 
   useEffect(() => {
     const init = async () => {
-      await startCamera();
-      await listCameras();
+      try {
+        // 1) Ask for generic permission so labels are populated
+        const tempStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+        // Immediately stop this temp stream
+        tempStream.getTracks().forEach((t) => t.stop());
+
+        // 2) Now list cameras and auto-select default
+        await listCameras();
+      } catch (err) {
+        alert("Camera permission failed: " + err.message);
+      }
     };
 
     init();
   }, []);
 
   // --------------------------------------------------------
-
+  // Stop any existing video stream
   const stopCurrentStream = () => {
     const stream = videoRef.current?.srcObject;
     if (!stream) return;
 
-    stream.getTracks().forEach(t => t.stop());
+    stream.getTracks().forEach((t) => t.stop());
     videoRef.current.srcObject = null;
   };
 
   // --------------------------------------------------------
-
+  // Start camera with optional deviceId
   const startCamera = async (deviceId = null) => {
     try {
       stopCurrentStream();
@@ -50,70 +62,66 @@ export default function App() {
         audio: false,
         video: deviceId
           ? { deviceId: { exact: deviceId } }
-          : { facingMode: { exact: "environment" } }
+          : { facingMode: { exact: "environment" } },
       };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
-
       videoRef.current.srcObject = stream;
-
     } catch (err) {
       alert("Camera access failed: " + err.message);
     }
   };
 
   // --------------------------------------------------------
-
-const getAllCameras = async () => {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-
-  const cameras = devices.filter(
-    device => device.kind === "videoinput"
-  );
-
-  return cameras;
-};
-
-const findMainBackCamera = (cameras) => {
-  return (
-    cameras.find(cam =>
-      cam.label.includes("back") &&
-      cam.label.includes("0")
-    )
-    ||
-    cameras.find(cam =>
-      cam.label.includes("back")
-    )
-    ||
-    cameras[0]
-    ||
-    null
-  );
-};
-
-const listCameras = async () => {
-  const cameras = await getAllCameras();
-
-  setCameras(cameras);
-
-  selectDefaultCamera(cameras);
-};
-
-
-const selectDefaultCamera = (cameras) => {
-  const chosen = findMainBackCamera(cameras);
-
-  if (!chosen) return null;
-
-  setSelectedCameraId(chosen.deviceId);
-  startCamera(chosen.deviceId);
-
-  return chosen;
-};
-
+  // 1. Get all camera properties
+  const getAllCameras = async () => {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cams = devices.filter((d) => d.kind === "videoinput");
+    return cams;
+  };
 
   // --------------------------------------------------------
+  // 2. Find camera whose label contains "back" and "0" (with fallbacks)
+  const findMainBackCamera = (cams) => {
+    if (!cams || cams.length === 0) return null;
 
+    // Primary rule: label has "back" AND "0"
+    let cam =
+      cams.find(
+        (c) => c.label.includes("back") && c.label.includes("0")
+      ) ||
+      // Fallback: any label with "back"
+      cams.find((c) => c.label.includes("back")) ||
+      // Fallback: first camera
+      cams[0] ||
+      null;
+
+    return cam;
+  };
+
+  // --------------------------------------------------------
+  // 3. Select that camera device as default and start it
+  const selectDefaultCamera = (cams) => {
+    const chosen = findMainBackCamera(cams);
+    if (!chosen) return null;
+
+    setSelectedCameraId(chosen.deviceId);
+    startCamera(chosen.deviceId);
+
+    return chosen;
+  };
+
+  // --------------------------------------------------------
+  // Wrapper: get cameras, store list, and select default
+  const listCameras = async () => {
+    const cams = await getAllCameras();
+
+    setCameras(cams);          // used for dropdown
+    selectDefaultCamera(cams); // auto-select main/back/0 camera
+  };
+
+  // --------------------------------------------------------
+  // Called when user manually changes camera from dropdown
   const handleCameraChange = (e) => {
     const newId = e.target.value;
 
@@ -129,7 +137,7 @@ const selectDefaultCamera = (cameras) => {
   };
 
   // --------------------------------------------------------
-
+  // Capture button behavior (preview vs live)
   const handleCaptureClick = () => {
     if (previewImage) {
       // back to live camera
@@ -137,15 +145,15 @@ const selectDefaultCamera = (cameras) => {
       setResult(null);
       setRaw("");
 
+      // restart currently selected camera
       startCamera(selectedCameraId);
-
     } else {
       captureImage();
     }
   };
 
   // --------------------------------------------------------
-
+  // Capture image, show preview, send to OCR
   const captureImage = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -190,12 +198,10 @@ const selectDefaultCamera = (cameras) => {
 
         if (error) console.error("Supabase insert error:", error);
         else console.log("✅ Record saved to Supabase");
-
       } else {
         setResult({ error: data.error });
         setRaw("");
       }
-
     } catch (err) {
       setLoading(false);
       setResult({ error: err.message });
@@ -260,16 +266,25 @@ const selectDefaultCamera = (cameras) => {
             <p className="text-red-400">Error: {result.error}</p>
           ) : (
             <>
-              <p><b>Meter Reading:</b> {result.meter_reading || "—"}</p>
-              <p><b>Register Type:</b> {result.register_type || "—"}</p>
-              <p><b>Serial Number:</b> {result.serial_number || "—"}</p>
-              <p><b>Confidence:</b> {result.confidence || "—"}</p>
-              <p><b>Notes:</b> {result.notes || "—"}</p>
+              <p>
+                <b>Meter Reading:</b> {result.meter_reading || "—"}
+              </p>
+              <p>
+                <b>Register Type:</b> {result.register_type || "—"}
+              </p>
+              <p>
+                <b>Serial Number:</b> {result.serial_number || "—"}
+              </p>
+              <p>
+                <b>Confidence:</b> {result.confidence || "—"}
+              </p>
+              <p>
+                <b>Notes:</b> {result.notes || "—"}
+              </p>
             </>
           )}
         </div>
       )}
-
     </div>
   );
 }
