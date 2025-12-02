@@ -88,13 +88,29 @@ Return JSON only:
 
     const data = await response.json();
 
-    const text =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    let text = "";
+
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+
+    for (const part of parts) {
+      if (typeof part.text === "string") {
+        text = part.text.trim();
+        break;
+      }
+    }
+    
+    // If Gemini responded with no text at all (rare)
+    if (!text) {
+      throw new Error(
+        "Gemini returned no text content: " + JSON.stringify(data)
+      );
+    }
 
     let parsed;
+
     try {
       parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
-    } catch {
+    } catch (e) {
       parsed = {
         meter_reading: null,
         register_type: null,
@@ -103,6 +119,7 @@ Return JSON only:
         notes: `Could not parse response: ${text}`,
       };
     }
+
 
     await supabase.from("meter_records").insert([
       {
