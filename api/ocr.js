@@ -67,7 +67,7 @@ Return JSON only:
       body: JSON.stringify({
         generationConfig: {
           temperature: 0,
-          maxOutputTokens: 200,
+          maxOutputTokens: 500,
         },
         contents: [
           {
