@@ -28,48 +28,65 @@ const processWithOpenCV = async (canvas) => {
   await loadOpenCV();
 
   let src = cv.imread(canvas);
-  let gray = new cv.Mat();
-  let clahed = new cv.Mat();
-  let sharpened = new cv.Mat();
+
+  let lab = new cv.Mat();
+  let labChannels = new cv.MatVector();
+  let merged = new cv.Mat();
   let resized = new cv.Mat();
 
-  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  // ---- Convert RGB to LAB
+  cv.cvtColor(src, lab, cv.COLOR_RGBA2LAB);
 
-  const clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
-  clahe.apply(gray, clahed);
+  // ---- Split L,A,B channels
+  cv.split(lab, labChannels);
 
-  const kernel = cv.matFromArray(3, 3, cv.CV_32F, [
-     0, -1, 0,
-    -1,  5, -1,
-     0, -1, 0
-  ]);
+  let L = labChannels.get(0);
+  let A = labChannels.get(1);
+  let B = labChannels.get(2);
 
-  cv.filter2D(clahed, sharpened, cv.CV_8U, kernel);
+  // ---- Apply CLAHE ONLY to L channel
+  let clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
+  clahe.apply(L, L);
 
-  const TARGET_WIDTH = 512;
-  const scale = TARGET_WIDTH / sharpened.cols;
-  const newHeight = Math.round(sharpened.rows * scale);
-  const newSize = new cv.Size(TARGET_WIDTH, newHeight);
+  // ---- Merge back L + A + B
+  labChannels.set(0, L);
+  labChannels.set(1, A);
+  labChannels.set(2, B);
 
-  cv.resize(sharpened, resized, newSize, 0, 0, cv.INTER_AREA);
+  cv.merge(labChannels, merged);
 
+  // ---- Convert back to RGB
+  cv.cvtColor(merged, merged, cv.COLOR_LAB2RGBA);
+
+  // ------------------------------------------------
+  // Resize to target width WITHOUT sharpening
+  // ------------------------------------------------
+  const TARGET_WIDTH = 720;
+
+  const scale = TARGET_WIDTH / merged.cols;
+  const newHeight = Math.round(merged.rows * scale);
+
+  const size = new cv.Size(TARGET_WIDTH, newHeight);
+  cv.resize(merged, resized, size, 0, 0, cv.INTER_AREA);
+
+  // ---- Render back to canvas
   canvas.width = TARGET_WIDTH;
   canvas.height = newHeight;
-
   cv.imshow(canvas, resized);
 
   const base64 = canvas.toDataURL("image/jpeg").split(",")[1];
 
+  // ---- Cleanup
   src.delete();
-  gray.delete();
-  clahed.delete();
-  sharpened.delete();
+  lab.delete();
+  labChannels.delete();
+  merged.delete();
   resized.delete();
-  kernel.delete();
   clahe.delete();
 
   return base64;
 };
+
 
 // --------------------------------------------------------
 
