@@ -47,7 +47,7 @@ Extract the following fields from the image:
    - "kW" and "kVA" are ALWAYS integers — **the reading MUST NOT contain a decimal point**.
    - "kWh" and "kVAh" ALWAYS include a decimal — **the reading MUST contain a decimal point**.
 
-   Use the presence/absence of the decimal to help decide the correct register type if the label is unclear.
+   If the constraint don't match, put it in notes
 
 3. serial_number — printed label near a barcode.
    - Valid: 7–8 digits or prefixes lt, ndp, npp, ss, tpp.
@@ -55,7 +55,7 @@ Extract the following fields from the image:
 
 If a field cannot be confidently read, return null.
 
-Return JSON only:
+Return JSON only and enforce this output format constraint:
 
 {
   "meter_reading": "<string|null>",
