@@ -65,10 +65,6 @@ Return JSON only:
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 500,
-        },
         contents: [
           {
             role: "user",
