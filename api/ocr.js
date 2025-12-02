@@ -31,11 +31,13 @@ export default async function handler(req, res) {
       - Ignore any dot or mark that is above or misaligned with that bottom edge.
 
       Important rule for bad quality images:
+      - Clahe and resize to 720p width is already applied. Apply additional preprocessing based on your judgement.
       - Some images would be blurred, or have glare or have uneven shadows, etc. You need to perform processing on the images, to amplify the signal of the reading and the register units from the other noise.
       - First locate the serial number if in the image, and the screen if in the image, apply preprocessing to improve clarity to undo the noise and environmental factors. Then get the digits. We want to binarize the image before extracting the digits. Hence, finding ways to remove the background or masking nosie factors from the image is a priority.
 
       Guidelines:
       - The reading must come from the 7-segment display only.
+      - The reading can have extra leading 0s due to this being a 7 segment display. Show the reading as is, without applying any postprocessing on it
       - Registers kWh and kVAh are always about 6-7 digit without a decimal point.
       - Registers kW and kVA would always have a decimal point.
       - Ignore timestamps, reflections, or glare.

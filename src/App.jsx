@@ -38,20 +38,12 @@ const processWithOpenCV = async (canvas) => {
   const clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
   clahe.apply(gray, clahed);
 
-  const kernel = cv.matFromArray(3, 3, cv.CV_32F, [
-     0, -1, 0,
-    -1,  5, -1,
-     0, -1, 0
-  ]);
-
-  cv.filter2D(clahed, sharpened, cv.CV_8U, kernel);
-
   const TARGET_WIDTH = 512;
-  const scale = TARGET_WIDTH / sharpened.cols;
-  const newHeight = Math.round(sharpened.rows * scale);
+  const scale = TARGET_WIDTH / clahed.cols;
+  const newHeight = Math.round(clahed.rows * scale);
   const newSize = new cv.Size(TARGET_WIDTH, newHeight);
 
-  cv.resize(sharpened, resized, newSize, 0, 0, cv.INTER_AREA);
+  cv.resize(clahed, resized, newSize, 0, 0, cv.INTER_AREA);
 
   canvas.width = TARGET_WIDTH;
   canvas.height = newHeight;
