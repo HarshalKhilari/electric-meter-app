@@ -37,18 +37,23 @@ Extract the following fields from the image:
 
 1. meter_reading — digits from the 7-segment display only (digits + decimal point allowed).
    - The decimal point is valid only if horizontally aligned with the bottom segment.
-   - Preserve leading zeros.
+   - Preserve leading zeros exactly as shown.
+   - Do not alter the reading format.
 
 2. register_type — unit label near the reading.
    - Allowed values: "kWh", "kVAh", "kW", "kVA".
-   - kWh / kVAh → no decimal
-   - kW / kVA → decimal present
+
+   Decimal consistency rules (MUST follow):
+   - "kW" and "kVA" are ALWAYS integers — **the reading MUST NOT contain a decimal point**.
+   - "kWh" and "kVAh" ALWAYS include a decimal — **the reading MUST contain a decimal point**.
+
+   Use the presence/absence of the decimal to help decide the correct register type if the label is unclear.
 
 3. serial_number — printed label near a barcode.
    - Valid: 7–8 digits or prefixes lt, ndp, npp, ss, tpp.
    - Ignore handwritten or small surrounding text.
 
-If unreadable, return null.
+If a field cannot be confidently read, return null.
 
 Return JSON only:
 
