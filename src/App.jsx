@@ -6,6 +6,86 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 );
 
+// --------------------------------------------------------
+// Load OpenCV.js (once)
+// --------------------------------------------------------
+const loadOpenCV = () => {
+  return new Promise((resolve) => {
+    if (window.cv) return resolve();
+
+    const script = document.createElement("script");
+    script.src = "https://docs.opencv.org/4.x/opencv.js";
+    script.async = true;
+    script.onload = resolve;
+    document.body.appendChild(script);
+  });
+};
+
+// --------------------------------------------------------
+// Client-side preprocessing:
+//  - grayscale
+//  - CLAHE
+//  - sharpen (unblur)
+//  - resize to 720px width
+// --------------------------------------------------------
+const processWithOpenCV = async (canvas) => {
+  await loadOpenCV();
+
+  let src = cv.imread(canvas);
+  let gray = new cv.Mat();
+  let clahed = new cv.Mat();
+  let sharpened = new cv.Mat();
+  let resized = new cv.Mat();
+
+  // Grayscale
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+  // CLAHE
+  const clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
+  clahe.apply(gray, clahed);
+
+  // Sharpen filter
+  const kernel = cv.matFromArray(
+    3,
+    3,
+    cv.CV_32F,
+    [
+      0, -1, 0,
+     -1,  5, -1,
+      0, -1, 0,
+    ]
+  );
+  cv.filter2D(clahed, sharpened, cv.CV_8U, kernel);
+
+  // Resize → 720px width
+  const TARGET_WIDTH = 720;
+  const scale = TARGET_WIDTH / sharpened.cols;
+  const newHeight = Math.round(sharpened.rows * scale);
+  const newSize = new cv.Size(TARGET_WIDTH, newHeight);
+
+  cv.resize(sharpened, resized, newSize, 0, 0, cv.INTER_AREA);
+
+  // Draw back to canvas
+  canvas.width = TARGET_WIDTH;
+  canvas.height = newHeight;
+  cv.imshow(canvas, resized);
+
+  const base64 = canvas.toDataURL("image/jpeg").split(",")[1];
+
+  // Cleanup
+  src.delete();
+  gray.delete();
+  clahed.delete();
+  sharpened.delete();
+  resized.delete();
+  kernel.delete();
+  clahe.delete();
+
+  return base64;
+};
+
+// --------------------------------------------------------
+
 export default function App() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -24,15 +104,14 @@ export default function App() {
   useEffect(() => {
     const init = async () => {
       try {
-        // 1) Ask for generic permission so labels are populated
+        // Ask permission so labels populate
         const tempStream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false,
         });
-        // Immediately stop this temp stream
+
         tempStream.getTracks().forEach((t) => t.stop());
 
-        // 2) Now list cameras and auto-select default
         await listCameras();
       } catch (err) {
         alert("Camera permission failed: " + err.message);
@@ -43,7 +122,6 @@ export default function App() {
   }, []);
 
   // --------------------------------------------------------
-  // Stop any existing video stream
   const stopCurrentStream = () => {
     const stream = videoRef.current?.srcObject;
     if (!stream) return;
@@ -53,7 +131,6 @@ export default function App() {
   };
 
   // --------------------------------------------------------
-  // Start camera with optional deviceId
   const startCamera = async (deviceId = null) => {
     try {
       stopCurrentStream();
@@ -73,34 +150,24 @@ export default function App() {
   };
 
   // --------------------------------------------------------
-  // 1. Get all camera properties
   const getAllCameras = async () => {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const cams = devices.filter((d) => d.kind === "videoinput");
-    return cams;
+    return devices.filter((d) => d.kind === "videoinput");
   };
 
   // --------------------------------------------------------
-  // 2. Find camera whose label contains "back" and "0" (with fallbacks)
   const findMainBackCamera = (cams) => {
     if (!cams || cams.length === 0) return null;
 
-    // Primary rule: label has "back" AND "0"
-    let cam =
-      cams.find(
-        (c) => c.label.includes("back") && c.label.includes("0")
-      ) ||
-      // Fallback: any label with "back"
+    return (
+      cams.find((c) => c.label.includes("back") && c.label.includes("0")) ||
       cams.find((c) => c.label.includes("back")) ||
-      // Fallback: first camera
       cams[0] ||
-      null;
-
-    return cam;
+      null
+    );
   };
 
   // --------------------------------------------------------
-  // 3. Select that camera device as default and start it
   const selectDefaultCamera = (cams) => {
     const chosen = findMainBackCamera(cams);
     if (!chosen) return null;
@@ -112,40 +179,30 @@ export default function App() {
   };
 
   // --------------------------------------------------------
-  // Wrapper: get cameras, store list, and select default
   const listCameras = async () => {
     const cams = await getAllCameras();
-
-    setCameras(cams);          // used for dropdown
-    selectDefaultCamera(cams); // auto-select main/back/0 camera
+    setCameras(cams);
+    selectDefaultCamera(cams);
   };
 
   // --------------------------------------------------------
-  // Called when user manually changes camera from dropdown
   const handleCameraChange = (e) => {
     const newId = e.target.value;
 
     setSelectedCameraId(newId);
-
-    // reset preview / OCR state
     setPreviewImage(null);
     setResult(null);
     setRaw("");
 
-    // restart camera with chosen lens
     startCamera(newId);
   };
 
   // --------------------------------------------------------
-  // Capture button behavior (preview vs live)
   const handleCaptureClick = () => {
     if (previewImage) {
-      // back to live camera
       setPreviewImage(null);
       setResult(null);
       setRaw("");
-
-      // restart currently selected camera
       startCamera(selectedCameraId);
     } else {
       captureImage();
@@ -153,27 +210,30 @@ export default function App() {
   };
 
   // --------------------------------------------------------
-  // Capture image, show preview, send to OCR
+  // Capture → preview → preprocess (OpenCV) → OCR
   const captureImage = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
+
     if (!video || !canvas) return;
 
     const ctx = canvas.getContext("2d");
+
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // save preview
-    const captureUrl = canvas.toDataURL("image/jpeg");
-    setPreviewImage(captureUrl);
-
-    const base64 = captureUrl.split(",")[1];
+    // Show raw preview
+    const previewUrl = canvas.toDataURL("image/jpeg");
+    setPreviewImage(previewUrl);
 
     setLoading(true);
 
     try {
+      // Preprocess client-side
+      const base64 = await processWithOpenCV(canvas);
+
       const res = await fetch("/api/ocr", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -212,7 +272,9 @@ export default function App() {
 
   return (
     <div className="flex flex-col items-center bg-black text-white min-h-screen p-4">
-      <h1 className="text-xl font-bold mb-4">⚡ Meter OCR (Gemini)</h1>
+      <h1 className="text-xl font-bold mb-4">
+        ⚡ Meter OCR (Client-side OpenCV preprocessing)
+      </h1>
 
       {/* Camera selector */}
       {cameras.length > 0 && (
@@ -253,11 +315,7 @@ export default function App() {
         disabled={loading}
         className="mt-4 bg-yellow-500 text-black px-6 py-2 rounded-full font-bold"
       >
-        {loading
-          ? "Processing..."
-          : previewImage
-          ? "📸 Capture Again"
-          : "📸 Capture"}
+        {loading ? "Processing..." : previewImage ? "📸 Capture Again" : "📸 Capture"}
       </button>
 
       {result && (
@@ -266,21 +324,11 @@ export default function App() {
             <p className="text-red-400">Error: {result.error}</p>
           ) : (
             <>
-              <p>
-                <b>Meter Reading:</b> {result.meter_reading || "—"}
-              </p>
-              <p>
-                <b>Register Type:</b> {result.register_type || "—"}
-              </p>
-              <p>
-                <b>Serial Number:</b> {result.serial_number || "—"}
-              </p>
-              <p>
-                <b>Confidence:</b> {result.confidence || "—"}
-              </p>
-              <p>
-                <b>Notes:</b> {result.notes || "—"}
-              </p>
+              <p><b>Meter Reading:</b> {result.meter_reading || "—"}</p>
+              <p><b>Register Type:</b> {result.register_type || "—"}</p>
+              <p><b>Serial Number:</b> {result.serial_number || "—"}</p>
+              <p><b>Confidence:</b> {result.confidence || "—"}</p>
+              <p><b>Notes:</b> {result.notes || "—"}</p>
             </>
           )}
         </div>
