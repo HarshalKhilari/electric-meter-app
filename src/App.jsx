@@ -50,7 +50,7 @@ const processWithOpenCV = async (canvas) => {
   ]);
   cv.filter2D(clahed, sharpened, cv.CV_8U, kernel);
 
-  const TARGET_WIDTH = 512;
+  const TARGET_WIDTH = 720;
   const scale = TARGET_WIDTH / sharpened.cols;
   const newHeight = Math.round(sharpened.rows * scale);
   const newSize = new cv.Size(TARGET_WIDTH, newHeight);
