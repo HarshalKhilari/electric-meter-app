@@ -44,8 +44,8 @@ Extract the following fields from the image:
    - Allowed values: "kWh", "kVAh", "kW", "kVA".
 
    Decimal consistency rules (MUST follow):
-   - "kW" and "kVA" are ALWAYS integers — **the reading MUST NOT contain a decimal point**.
-   - "kWh" and "kVAh" ALWAYS include a decimal — **the reading MUST contain a decimal point**.
+   - "kWh" and "kVAh" are ALWAYS integers — **the reading MUST NOT contain a decimal point**.
+   - "kW" and "kVA" ALWAYS include a decimal — **the reading MUST contain a decimal point**.
 
    If the constraint don't match, put it in notes
 
